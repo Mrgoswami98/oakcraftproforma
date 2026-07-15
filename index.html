@@ -532,16 +532,16 @@ function recalc(){
 /* ================= FORM <-> DATA ================= */
 const DEFAULT_TERMS="1. This is a Proforma Invoice and not a tax invoice.\n2. Prices are valid for 2 days from the date of issue.\n3. Delivery period: 7 days from order confirmation.\n4. Payment Terms: 40% Advance / Balance before dispatch.\n5. Goods once sold will not be taken back.\n6. Transportation: extra / as agreed.\n7. 3-Year Part Replacement Warranty. Does not cover cutting, burning or tearing.";
 const val=id=>document.getElementById(id).value;
-function localMaxPi(){let max=98;quotes.forEach(q=>{const m=/(\d+)\s*$/.exec(q.piNo||'');if(m)max=Math.max(max,parseInt(m[1]));});return max;}
+function localMaxPi(){let max=00;quotes.forEach(q=>{const m=/(\d+)\s*$/.exec(q.piNo||'');if(m)max=Math.max(max,parseInt(m[1]));});return max;}
 async function peekNextPi(){ // sirf dikhane ke liye — final number save par lock hota hai
   const c=await sGet(K_PICOUNTER,true,null);
-  const n=Math.max(Number(c)||98,localMaxPi())+1;
+  const n=Math.max(Number(c)||00,localMaxPi())+1;
   return "OC/PI/"+String(n).padStart(3,'0');
 }
 async function reservePiNo(){ // save ke waqt: fresh counter padho, +1 karo, wापas likho => globally unique
   quotes=await sGet(K_QUOTES,true,quotes||[]);
   const c=await sGet(K_PICOUNTER,true,null);
-  const n=Math.max(Number(c)||98,localMaxPi())+1;
+  const n=Math.max(Number(c)||00,localMaxPi())+1;
   await sSet(K_PICOUNTER,n,true);
   return "OC/PI/"+String(n).padStart(3,'0');
 }

@@ -143,7 +143,7 @@ table.items tr:nth-child(even) td{background:var(--cream2)}
 .pay-wrap .qr img,.pay-wrap .qr canvas{width:100%!important;height:100%!important}
 .pay-wrap .paytext{font-size:12px;color:#6b5842;line-height:1.8}
 .pay-wrap .paytext b{color:var(--brown)}
-.why{width:820px;margin:24px auto 0;background:#fff;color:#2a2118;padding:0 4px;page-break-before:always}
+.why{width:100%;margin:0 auto;background:#fff;color:#2a2118;padding:0 4px;page-break-before:always}
 .why .wh{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--gold);padding:6px 12px 10px}
 .why .wh .wlogo{max-height:50px}
 .why .wh .wlogo-txt{font-size:22px;font-weight:bold;color:var(--ink)}
@@ -206,7 +206,7 @@ table.items tr:nth-child(even) td{background:var(--cream2)}
       <label>Email address</label>
       <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email">
       <button class="primary" onclick="authContinue()">Continue</button>
-      <div class="step-note">Pehli baar? Email daalein — agla step me User ID &amp; Password banwaya jayega.</div>
+      <div class="step-note">Pehli baar? Email daalein — agla step me Salesperson Name, Phone Number &amp; Password banwaya jayega.</div>
     </div>
     <div id="stepLogin" class="hidden">
       <label>Password for <span id="loginEmailShow" style="color:var(--accent)"></span></label>
@@ -216,8 +216,10 @@ table.items tr:nth-child(even) td{background:var(--cream2)}
     </div>
     <div id="stepRegister" class="hidden">
       <div class="step-note">Naya account — <b id="regEmailShow"></b>. Apni User ID aur Password banayein.</div>
-      <label>User ID</label>
-      <input id="regUserId" placeholder="e.g. ujala.rajput">
+      <label>User ID (Salesperson Name)</label>
+      <input id="regUserId" placeholder="e.g. Ujala Rajput">
+      <label>Phone Number <span style="color:var(--danger)">*</span></label>
+      <input id="regPhone" type="tel" placeholder="10-digit mobile number" maxlength="10" inputmode="numeric">
       <label>Password</label>
       <input id="regPassword" type="password" placeholder="Choose a password">
       <label>Confirm Password</label>
@@ -261,7 +263,7 @@ table.items tr:nth-child(even) td{background:var(--cream2)}
         <div class="field"><label>Valid for</label><input id="f_valid" value="2 days from issue"></div>
       </div>
       <div class="form-grid three">
-        <div class="field"><label>Salesperson</label><input id="f_sales"></div>
+        <div class="field"><label>Salesperson (Name, Phone)</label><input id="f_sales"></div>
         <div class="field"><label>Payment Terms</label><input id="f_pay" value="40% Advance / Balance before dispatch"></div>
         <div class="field"><label>Delivery Period</label><input id="f_delivery" value="7 days from order confirmation"></div>
       </div>
@@ -339,7 +341,7 @@ table.items tr:nth-child(even) td{background:var(--cream2)}
 <div id="settingsOverlay" class="overlay hidden">
   <div class="modal">
     <h2>Company Settings</h2>
-    <p class="small-note">Ye ek baar upload karein — har quotation par apne aap lagega. (Data isi browser me save hota hai.)</p>
+    <p class="small-note">Ye ek baar upload karein — har quotation par apne aap lagega. (Note: is preview me data session tak hi rehta hai.)</p>
     <div class="upload-slot">
       <div class="thumb" id="thumb_logo">Logo</div>
       <div class="meta"><b>Company Logo</b><p>Invoice header aur login par dikhega. PNG (transparent) best.</p>
@@ -365,12 +367,27 @@ table.items tr:nth-child(even) td{background:var(--cream2)}
   </div>
 </div>
 <script>
-/* ================= STORAGE ================= */
+/* ================= STORAGE (persistent, shared across all users via window.storage) ================= */
 const ADMINS=["mis@oakcraft.in","vishu@oakcraft.in"];
-const K_USERS="oc_users",K_SESSION="oc_session",K_QUOTES="oc_quotes",K_COMPANY="oc_company";
-const load=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
-const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
-let users=load(K_USERS,{}),quotes=load(K_QUOTES,[]),company=load(K_COMPANY,{}),session=localStorage.getItem(K_SESSION);
+const MEM={};
+const hasStore=typeof window!=='undefined'&&window.storage;
+async function sGet(key,shared,d){
+  if(!hasStore)return (key in MEM)?JSON.parse(MEM[key]):d;
+  try{const r=await window.storage.get(key,shared);return r&&r.value?JSON.parse(r.value):d;}catch(e){return d;}
+}
+async function sSet(key,val,shared){
+  MEM[key]=JSON.stringify(val);
+  if(hasStore){try{await window.storage.set(key,JSON.stringify(val),shared);}catch(e){console.error('storage',e);}}
+}
+const K_USERS="oc-users",K_SESSION="oc-session",K_QUOTES="oc-quotes",K_COMPANY="oc-company",K_PICOUNTER="oc-pi-counter";
+// users, quotes, company, PI counter => SHARED (sab users ke liye common)
+// session => personal (har user apne device par logged-in rehta hai)
+const load=(k,d)=>(k in MEM?JSON.parse(MEM[k]):d);
+const save=(k,v)=>{
+  const shared=(k!==K_SESSION);
+  sSet(k,v,shared);
+};
+let users={},quotes=[],company={},session=null;
 let currentId=null,editingId=null;
 const isAdmin=email=>ADMINS.includes((email||"").toLowerCase());
 const fmt=n=>"₹"+Number(Math.round(n)||0).toLocaleString('en-IN');
@@ -384,20 +401,24 @@ function resetAuth(){pendingEmail="";document.getElementById('authEmail').value=
 function refreshAuthLogo(){
   document.getElementById('authLogo').innerHTML=company.logo?'<img class="logo-img" src="'+company.logo+'">':'';
 }
-function authContinue(){
+async function authContinue(){
   const email=document.getElementById('authEmail').value.trim().toLowerCase();
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){amsg("Sahi email daalein.","err");return;}
-  pendingEmail=email;amsg("");
+  pendingEmail=email;amsg("Checking...","ok");
+  users=await sGet(K_USERS,true,users||{});  // fresh list — account bana hai to login hi poochega
+  amsg("");
   if(users[email]){document.getElementById('loginEmailShow').textContent=email;show('stepLogin');document.getElementById('loginPassword').focus();}
   else{document.getElementById('regEmailShow').textContent=email;show('stepRegister');document.getElementById('regUserId').focus();}
 }
 function doRegister(){
   const uid=document.getElementById('regUserId').value.trim();
+  const phone=document.getElementById('regPhone').value.trim();
   const p1=document.getElementById('regPassword').value,p2=document.getElementById('regPassword2').value;
-  if(uid.length<3){amsg("User ID kam se kam 3 characters.","err");return;}
+  if(uid.length<3){amsg("Salesperson name kam se kam 3 characters.","err");return;}
+  if(!/^[6-9]\d{9}$/.test(phone)){amsg("Sahi 10-digit mobile number daalein (phone number zaroori hai).","err");return;}
   if(p1.length<4){amsg("Password kam se kam 4 characters.","err");return;}
   if(p1!==p2){amsg("Password match nahi kar raha.","err");return;}
-  users[pendingEmail]={email:pendingEmail,userId:uid,password:p1,role:isAdmin(pendingEmail)?"admin":"user"};
+  users[pendingEmail]={email:pendingEmail,userId:uid,phone:phone,password:p1,role:isAdmin(pendingEmail)?"admin":"user"};
   save(K_USERS,users);startSession(pendingEmail);
 }
 function doLogin(){
@@ -405,8 +426,14 @@ function doLogin(){
   if(users[pendingEmail]&&users[pendingEmail].password===p){startSession(pendingEmail);}
   else amsg("Galat password.","err");
 }
-function startSession(email){session=email;localStorage.setItem(K_SESSION,email);enterApp();}
-function logout(){localStorage.removeItem(K_SESSION);session=null;location.reload();}
+function startSession(email){session=email;sSet(K_SESSION,email,false);enterApp();}
+function logout(){
+  session=null;delete MEM[K_SESSION];
+  if(hasStore){window.storage.delete(K_SESSION,false).catch(()=>{});}
+  document.getElementById('appView').classList.add('hidden');
+  document.getElementById('authView').classList.remove('hidden');
+  resetAuth();
+}
 /* ================= COMPANY SETTINGS ================= */
 function openSettings(){refreshThumbs();document.getElementById('settingsOverlay').classList.remove('hidden');}
 function closeSettings(){document.getElementById('settingsOverlay').classList.add('hidden');}
@@ -440,7 +467,11 @@ function enterApp(){
   goDash();
 }
 function showView(id){['dashView','formView','viewPreview'].forEach(v=>document.getElementById(v).classList.add('hidden'));document.getElementById(id).classList.remove('hidden');}
-function goDash(){renderList();showView('dashView');window.scrollTo(0,0);}
+async function goDash(){
+  quotes=await sGet(K_QUOTES,true,quotes||[]);
+  users=await sGet(K_USERS,true,users||{});
+  renderList();showView('dashView');window.scrollTo(0,0);
+}
 
 /* ================= DASHBOARD ================= */
 function renderList(){
@@ -501,13 +532,30 @@ function recalc(){
 /* ================= FORM <-> DATA ================= */
 const DEFAULT_TERMS="1. This is a Proforma Invoice and not a tax invoice.\n2. Prices are valid for 2 days from the date of issue.\n3. Delivery period: 7 days from order confirmation.\n4. Payment Terms: 40% Advance / Balance before dispatch.\n5. Goods once sold will not be taken back.\n6. Transportation: extra / as agreed.\n7. 3-Year Part Replacement Warranty. Does not cover cutting, burning or tearing.";
 const val=id=>document.getElementById(id).value;
-function nextPiNo(){let max=98;quotes.forEach(q=>{const m=/(\d+)\s*$/.exec(q.piNo||'');if(m)max=Math.max(max,parseInt(m[1]));});return"OC/PI/"+String(max+1).padStart(3,'0');}
-function newQuotation(){
+function localMaxPi(){let max=98;quotes.forEach(q=>{const m=/(\d+)\s*$/.exec(q.piNo||'');if(m)max=Math.max(max,parseInt(m[1]));});return max;}
+async function peekNextPi(){ // sirf dikhane ke liye — final number save par lock hota hai
+  const c=await sGet(K_PICOUNTER,true,null);
+  const n=Math.max(Number(c)||98,localMaxPi())+1;
+  return "OC/PI/"+String(n).padStart(3,'0');
+}
+async function reservePiNo(){ // save ke waqt: fresh counter padho, +1 karo, wापas likho => globally unique
+  quotes=await sGet(K_QUOTES,true,quotes||[]);
+  const c=await sGet(K_PICOUNTER,true,null);
+  const n=Math.max(Number(c)||98,localMaxPi())+1;
+  await sSet(K_PICOUNTER,n,true);
+  return "OC/PI/"+String(n).padStart(3,'0');
+}
+function nextPiNo(){return "OC/PI/"+String(localMaxPi()+1).padStart(3,'0');}
+async function newQuotation(){
   editingId=null;prodRows=[{img:'',desc:'',category:'',hsn:'',qty:'',unit:''}];
   document.getElementById('formTitle').textContent="New Proforma Invoice";
   const today=new Date().toISOString().slice(0,10),set=(id,v)=>document.getElementById(id).value=v;
-  set('f_piNo',nextPiNo());set('f_date',today);set('f_valid','2 days from issue');
-  set('f_sales',users[session]?users[session].userId:'');set('f_pay','40% Advance / Balance before dispatch');set('f_delivery','7 days from order confirmation');
+  set('f_piNo','Auto (save par milega)');document.getElementById('f_piNo').readOnly=true;
+  peekNextPi().then(p=>{if(!editingId)set('f_piNo',p+' (auto)');});
+  set('f_date',today);set('f_valid','2 days from issue');
+  const su=users[session];
+  set('f_sales',su?(su.userId+(su.phone?', '+su.phone:'')):'');
+  set('f_pay','40% Advance / Balance before dispatch');set('f_delivery','7 days from order confirmation');
   ['f_b_name','f_b_addr','f_b_gst','f_b_email','f_s_name','f_s_addr','f_s_gst','f_s_email'].forEach(id=>set(id,''));
   document.getElementById('f_same').checked=false;document.getElementById('shipFields').style.display='';
   set('f_discount','0');set('f_freight','0');set('f_gst','18');
@@ -528,7 +576,8 @@ function readForm(){
 }
 function fillForm(q){
   const set=(id,v)=>document.getElementById(id).value=v;
-  set('f_piNo',q.piNo);set('f_date',q.date);set('f_valid',q.valid);set('f_sales',q.sales);set('f_pay',q.pay);set('f_delivery',q.delivery);
+  set('f_piNo',q.piNo);document.getElementById('f_piNo').readOnly=true;
+  set('f_date',q.date);set('f_valid',q.valid);set('f_sales',q.sales);set('f_pay',q.pay);set('f_delivery',q.delivery);
   set('f_b_name',q.billTo.name);set('f_b_addr',q.billTo.addr);set('f_b_gst',q.billTo.gst);set('f_b_email',q.billTo.email);
   document.getElementById('f_same').checked=!!q.sameShip;toggleSame();
   set('f_s_name',q.shipTo.name);set('f_s_addr',q.shipTo.addr);set('f_s_gst',q.shipTo.gst);set('f_s_email',q.shipTo.email);
@@ -538,15 +587,22 @@ function fillForm(q){
   prodRows=(q.products||[]).map(p=>Object.assign({},p));renderProducts();recalc();
 }
 /* ================= SAVE ================= */
-function saveQuotation(){
+async function saveQuotation(){
   const data=readForm();
   if(!data.billTo.name){alert("Bill To company/name zaroori hai.");return;}
   if(data.products.filter(p=>p.desc).length===0){alert("Kam se kam 1 product ka description bharein.");return;}
   if(editingId){
-    const q=quotes.find(x=>x.id===editingId);Object.assign(q,data);q.editCount=(q.editCount||0)+1;q.updatedAt=Date.now();
+    quotes=await sGet(K_QUOTES,true,quotes||[]);
+    const q=quotes.find(x=>x.id===editingId);
+    const keepPi=q.piNo,keepOwner=q.owner,keepCreated=q.createdAt,keepCount=q.editCount||0;
+    Object.assign(q,data);
+    q.piNo=keepPi;q.owner=keepOwner;q.createdAt=keepCreated; // PI kabhi change nahi hota
+    q.editCount=keepCount+1;q.updatedAt=Date.now();
     save(K_QUOTES,quotes);currentId=q.id;
     alert("Update ho gaya. Dhyaan dein: is quotation ko ab dobara edit nahi kar sakte (reedit sirf ek baar).");
   }else{
+    const pi=await reservePiNo(); // globally unique — kisi bhi user se duplicate nahi banega
+    data.piNo=pi;
     const q=Object.assign({id:'q'+Date.now()+Math.floor(Math.random()*999),owner:session,createdAt:Date.now(),editCount:0},data);
     quotes.push(q);save(K_QUOTES,quotes);currentId=q.id;
   }
@@ -594,6 +650,13 @@ function renderInvoice(q){
       '<div class="m"><div class="k">Payment Terms</div><div class="v">'+esc(q.pay)+'</div></div>'+
       '<div class="m"><div class="k">Delivery Period</div><div class="v">'+esc(q.delivery)+'</div></div></div>'+
     '<table class="items"><thead><tr><th>SR.</th><th>IMAGE</th><th>ITEM DESCRIPTION</th><th>CATEGORY</th><th>HSN CODE</th><th>QTY</th><th>UNIT (₹)</th><th>TOTAL (₹)</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div class="terms"><div class="tc"><div class="th">TERMS &amp; CONDITIONS</div><ol>'+termsHtml+'</ol></div>'+
+      '<div class="totals" style="flex:1"><table>'+
+        '<tr><td class="k">Sub Total</td><td style="text-align:right">'+fmt(t.sub)+'</td></tr>'+
+        '<tr><td class="k">Discount @ '+t.discPct+'%</td><td style="text-align:right">-'+fmt(t.discAmt)+'</td></tr>'+
+        '<tr><td class="k">Freight</td><td style="text-align:right">'+(t.freight?fmt(t.freight):'—')+'</td></tr>'+
+        '<tr><td class="k">GST @ '+t.rate+'%</td><td style="text-align:right">'+fmt(t.gst)+'</td></tr>'+
+        '<tr class="grand"><td>GRAND TOTAL</td><td style="text-align:right">'+fmt(t.grand)+'</td></tr></table></div></div>'+
     '<div class="bottom"><div class="bank"><table>'+
         '<tr><th colspan="2">BANK DETAILS</th></tr>'+
         '<tr><td class="k">Account Name</td><td><b>'+esc(q.bank.name)+'</b></td></tr>'+
@@ -601,20 +664,17 @@ function renderInvoice(q){
         '<tr><td class="k">Account No.</td><td>'+esc(q.bank.acc)+'</td></tr>'+
         '<tr><td class="k">IFSC Code</td><td>'+esc(q.bank.ifsc)+'</td></tr>'+
         '<tr><td class="k">Branch</td><td>'+esc(q.bank.branch)+'</td></tr></table></div>'+
-      '<div class="totals"><table>'+
-        '<tr><td class="k">Sub Total</td><td style="text-align:right">'+fmt(t.sub)+'</td></tr>'+
-        '<tr><td class="k">Discount @ '+t.discPct+'%</td><td style="text-align:right">-'+fmt(t.discAmt)+'</td></tr>'+
-        '<tr><td class="k">Freight</td><td style="text-align:right">'+(t.freight?fmt(t.freight):'—')+'</td></tr>'+
-        '<tr><td class="k">GST @ '+t.rate+'%</td><td style="text-align:right">'+fmt(t.gst)+'</td></tr>'+
-        '<tr class="grand"><td>GRAND TOTAL</td><td style="text-align:right">'+fmt(t.grand)+'</td></tr></table></div></div>'+
-    '<div class="terms"><div class="tc"><div class="th">TERMS &amp; CONDITIONS</div><ol>'+termsHtml+'</ol></div>'+
-      '<div class="sign"><div class="as">Authorised Signatory</div><div class="fo">For Oakcraft Furniture</div><div class="sl"></div></div></div>'+
-    '<div class="inv-foot">📞 7827554727 &nbsp; ✉ contact@oakcraft.in &nbsp; Delhi – 110039'+
-      '<div class="thanks">Thank you for your business! • Oakcraft Furniture • '+esc(q.bank.ifsc)+' • A/C: '+esc(q.bank.acc)+'</div></div>'+
-    '<div class="pay-wrap"><div class="qr" id="qrBox"></div>'+
-      '<div class="paytext">Pay to <b>'+esc(q.bank.name)+'</b><br>UPI ID: <b>'+esc(q.bank.upi)+'</b><br>Scan &amp; pay '+fmt(t.grand)+'</div></div>'+
-    (q.includeWhy!==false?whyPageHtml():'')+
-  '</div>';
+      '<div class="totals" style="display:flex;gap:14px;align-items:flex-start">'+
+        '<div class="qr" id="qrBox" style="width:110px;height:110px;border:1px solid var(--line);border-radius:8px;padding:6px;background:#fff;display:flex;align-items:center;justify-content:center;flex:none"></div>'+
+        '<div style="flex:1">'+
+          '<div class="paytext" style="font-size:11.5px;color:#6b5842;line-height:1.7">Pay to <b style="color:var(--brown)">'+esc(q.bank.name)+'</b><br>UPI ID: <b style="color:var(--brown)">'+esc(q.bank.upi)+'</b><br>Scan &amp; pay '+fmt(t.grand)+'</div>'+
+          '<div class="sign" style="text-align:right;font-size:12px;margin-top:18px"><div class="as">Authorised Signatory</div><div class="fo">For Oakcraft Furniture</div><div class="sl"></div></div>'+
+        '</div></div></div>'+
+    '<div class="inv-foot">📞 8700540830 &nbsp; ✉ contact@oakcraft.in &nbsp; Delhi – 110039'+
+      '<div class="thanks">Thank you for your business!</div></div>'+
+    '<div style="height:14px"></div>'+
+  '</div>'+
+  (q.includeWhy!==false?'<div id="whyRoot" style="background:#fff;width:820px;margin:24px auto 0;padding:14px 0">'+whyPageHtml()+'</div>':'');
   document.getElementById('previewArea').innerHTML=html;
   // Generate UPI QR
   const qb=document.getElementById('qrBox');
@@ -632,7 +692,7 @@ function whyPageHtml(){
   const founder=company.founder?'<img class="fphoto" src="'+company.founder+'">':'<div class="fphoto" style="display:flex;align-items:center;justify-content:center;font-size:8px;color:#9a8a75">Photo</div>';
   return '<div class="why">'+
     '<div class="wh">'+logo+'<div class="wt">W H Y &nbsp; O A K C R A F T</div></div>'+
-    '<div class="wtag">Most vendors ask you to trust them. We built systems so you don’t have to.</div>'+
+    '<div class="wtag">Most vendors ask you to trust them. We built systems so you don\u2019t have to.</div>'+
     '<div class="darkbox"><div class="pct">84.3%</div><div class="dt"><b>ON-TIME DELIVERY — MEASURED, NOT ESTIMATED</b><br>'+
       'Every dispatch at Oakcraft is tracked through our Flow Management Systems, from purchase order to your doorstep. 84.3% is our audited on-time rate across all orders — a number most vendors cannot quote, because most vendors do not measure. What gets measured gets delivered.</div></div>'+
     '<div class="sysbar"><div>OAKCRAFT SYSTEM MASTER<span class="live">Live</span></div>'+
@@ -645,15 +705,15 @@ function whyPageHtml(){
       cell('ACCOUNTS',['Vendor Software','Bidding FMS','PO Folder &amp; Billing Systems'])+
       cell('PACKAGING &amp; DISPATCH',['Packing &amp; Dispatch FMS','Returns Software','Online Dispatch FMS'])+
     '</div>'+
-    '<div class="note">Every process above runs live, with a named owner and a named problem-solver — your order’s status is a fact, not an opinion.</div>'+
+    '<div class="note">Every process above runs live, with a named owner and a named problem-solver — your order\u2019s status is a fact, not an opinion.</div>'+
     '<div class="stat4">'+
       stat('3,000 sqm','OWN MANUFACTURING FACILITY, DELHI NCR')+
       stat('100+','TEAM MEMBERS BUILDING EVERY CHAIR IN-HOUSE')+
       stat('500+','LIVELIHOODS SUPPORTED BY OUR FACTORY ECOSYSTEM')+
       stat('Replacement','OVER REPAIR — OUR AFTER-SALES PROMISE')+
     '</div>'+
-    '<div class="founder"><div class="book">'+book+'<div class="bcap">WORLD’S FIRST &amp; ONLY BOOK ON SEATING &amp; PERFORMANCE</div></div>'+
-      '<div class="fr"><div style="font-size:10px;letter-spacing:1px;color:var(--gold);margin-bottom:6px">FROM THE FOUNDER’S DESK</div>'+
+    '<div class="founder"><div class="book">'+book+'<div class="bcap">WORLD\u2019S FIRST &amp; ONLY BOOK ON SEATING &amp; PERFORMANCE</div></div>'+
+      '<div class="fr"><div style="font-size:10px;letter-spacing:1px;color:var(--gold);margin-bottom:6px">FROM THE FOUNDER\u2019S DESK</div>'+
         '<div class="fhead">'+founder+'<div><div class="fname">Vishu Mittal</div><div class="frole">FOUNDER &amp; CEO &nbsp;#STARTINGAT17</div></div></div>'+
         '<div class="fbio">Vishu started Oakcraft at 17, on the factory floor — and built it into a manufacturer-direct seating brand trusted by businesses across India. He is the author of <i>More Than a Chair</i>, on how the chair your team sits on shapes their productivity, health and work. When you buy from Oakcraft, you deal with the manufacturer — no middlemen, no markups, no excuses.</div></div></div>'+
     '<div class="compliment">A signed copy of <b>More Than a Chair</b> accompanies this quotation — with our compliments.</div>'+
@@ -664,25 +724,40 @@ function cell(h,items){return '<div class="cell"><h4>'+h+'</h4><ul>'+items.map(x
 function stat(n,l){return '<div class="s"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';}
 /* ================= PRINT / PDF ================= */
 function printInvoice(){window.print();}
-function downloadPDF(){
-  const el=document.getElementById('invoiceRoot');if(!el){alert("Preview pehle open karein.");return;}
-  const {jsPDF}=window.jspdf;
-  html2canvas(el,{scale:2,useCORS:true,backgroundColor:'#ffffff'}).then(canvas=>{
-    const img=canvas.toDataURL('image/jpeg',0.92),pdf=new jsPDF('p','mm','a4');
+function captureToPdf(pdf,el,startNewPage){
+  return html2canvas(el,{scale:2,useCORS:true,backgroundColor:'#ffffff'}).then(canvas=>{
+    const img=canvas.toDataURL('image/jpeg',0.92);
     const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
     const iw=pw,ih=canvas.height*pw/canvas.width;let left=ih,pos=0;
+    if(startNewPage)pdf.addPage();
     pdf.addImage(img,'JPEG',0,pos,iw,ih);left-=ph;
     while(left>0){pos=left-ih;pdf.addPage();pdf.addImage(img,'JPEG',0,pos,iw,ih);left-=ph;}
-    const q=quotes.find(x=>x.id===currentId);
-    pdf.save((q?q.piNo.replace(/\//g,'_'):'Proforma_Invoice')+'.pdf');
   });
+}
+function downloadPDF(){
+  const inv=document.getElementById('invoiceRoot');if(!inv){alert("Preview pehle open karein.");return;}
+  const why=document.getElementById('whyRoot');
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF('p','mm','a4');
+  captureToPdf(pdf,inv,false)
+    .then(()=>why?captureToPdf(pdf,why,true):null) // Why Oakcraft => hamesha alag page par
+    .then(()=>{
+      const q=quotes.find(x=>x.id===currentId);
+      pdf.save((q?q.piNo.replace(/\//g,'_'):'Proforma_Invoice')+'.pdf');
+    });
 }
 
 /* ================= BOOT ================= */
 document.getElementById('authEmail').addEventListener('keydown',e=>{if(e.key==='Enter')authContinue();});
 document.getElementById('loginPassword').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
-refreshAuthLogo();
-if(session&&users[session]){enterApp();}
+(async function init(){
+  users=await sGet(K_USERS,true,{});
+  quotes=await sGet(K_QUOTES,true,[]);
+  company=await sGet(K_COMPANY,true,{});
+  refreshAuthLogo();
+  const saved=await sGet(K_SESSION,false,null);
+  if(saved&&users[saved]){session=saved;enterApp();} // pehle se logged-in → seedha app
+})();
 </script>
 </body>
 </html>
